@@ -5,6 +5,8 @@
  * Bow: spinning ranged weapon, fires arrows in escalating bursts
  * Shuriken: throws homing stars with cumulative bounces (1 dmg each)
  * Shield: straight bar that bounces enemies away and lengthens per bash
+ * Wrench: melee hit builds a static spinning turret that shoots 1-dmg bullets;
+ *         turrets are solid obstacles the other balls bounce off
  */
 
 (() => {
@@ -66,6 +68,18 @@
     const SHIELD_GROWTH = 3;          // px of half-length gained per bash
     const SHIELD_THICKNESS = 10;
 
+    /* ---- Wrench & turret config ---- */
+    const WRENCH_DAMAGE = 1;          // fixed damage per wrench hit
+    const WRENCH_LENGTH = 34;
+    const WRENCH_SPIN_SPEED = 1.5;    // rev/s
+    const TURRET_RADIUS = 13;
+    const TURRET_SPIN_SPEED = 0.7;    // rev/s
+    const TURRET_FIRE_INTERVAL = 1.1; // seconds between shots
+    const TURRET_BULLET_SPEED = 320;
+    const TURRET_BULLET_RADIUS = 4;
+    const TURRET_BULLET_DAMAGE = 1;
+    const MAX_TURRETS_PER_PLAYER = 8; // beyond this, the oldest turret is recycled
+
     const MAX_PLAYERS = 6;
     const MIN_PLAYERS = 2;
 
@@ -75,6 +89,7 @@
         bow:      { icon: "🏹", label: "Arco",     stat: "Ráfaga",  desc: "Dispara ráfagas cada vez mayores" },
         shuriken: { icon: "✦",  label: "Shuriken", stat: "Rebotes", desc: "Estrellas teledirigidas que acumulan rebotes" },
         shield:   { icon: "🛡️", label: "Escudo",   stat: "Tamaño",  desc: "Barra recta que crece con cada golpe y repele enemigos" },
+        wrench:   { icon: "🔧", label: "Llave",    stat: "Torretas", desc: "Cada golpe construye una torreta giratoria que dispara y estorba" },
     };
 
     const PALETTE = [
@@ -97,6 +112,10 @@
         shurikenStroke: "#5a6068",
         shieldBody: "#7a8aa0",
         shieldEdge: "#dfe6f0",
+        wrenchBody: "#9aa4b2",
+        wrenchEdge: "#d8dee8",
+        turretBase: "#6b7687",
+        turretBarrel: "#4a5261",
         hpBarBg: "rgba(0,0,0,0.25)",
         hpGreen: "#44cc55",
         hpYellow: "#ddcc22",
@@ -112,7 +131,7 @@
         { weapon: "bow" },
     ];
 
-    let players, arrows, shurikens, particles, damageNumbers;
+    let players, arrows, shurikens, turrets, bullets, particles, damageNumbers;
     let gameOver, started, lastTime;
     let hitStopTimer = 0;
     let timeScale = 1;
@@ -351,6 +370,115 @@
         }
     }
 
+    /* ==================== TURRET & BULLET CLASSES ==================== */
+    class Bullet {
+        constructor(x, y, angle, owner, colorIdx) {
+            this.x = x;
+            this.y = y;
+            this.px = x;
+            this.py = y;
+            this.vx = Math.cos(angle) * TURRET_BULLET_SPEED;
+            this.vy = Math.sin(angle) * TURRET_BULLET_SPEED;
+            this.owner = owner;
+            this.colorIdx = colorIdx || 0;
+            this.alive = true;
+        }
+        update(dt) {
+            this.px = this.x;
+            this.py = this.y;
+            this.x += this.vx * dt;
+            this.y += this.vy * dt;
+            // Bullets die on walls
+            if (this.x < 0 || this.x > W || this.y < 0 || this.y > H) this.alive = false;
+        }
+        draw(alpha) {
+            const dx = lerp(this.px, this.x, alpha);
+            const dy = lerp(this.py, this.y, alpha);
+            ctx.fillStyle = PALETTE[this.colorIdx].fill;
+            ctx.strokeStyle = COLORS.turretBarrel;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(dx, dy, TURRET_BULLET_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+    }
+
+    class Turret {
+        constructor(x, y, owner, colorIdx) {
+            this.x = x;
+            this.y = y;
+            this.owner = owner;
+            this.colorIdx = colorIdx !== undefined
+                ? colorIdx
+                : (owner ? owner.index % PALETTE.length : 0);
+            this.angle = Math.random() * Math.PI * 2;
+            this.prevAngle = this.angle;
+            this.fireTimer = TURRET_FIRE_INTERVAL * (0.6 + Math.random() * 0.8);
+        }
+        update(dt) {
+            this.prevAngle = this.angle;
+            this.angle += TURRET_SPIN_SPEED * dt * Math.PI * 2;
+            this.fireTimer -= dt;
+            if (this.fireTimer <= 0) {
+                this.fireTimer += TURRET_FIRE_INTERVAL;
+                const bx = this.x + Math.cos(this.angle) * (TURRET_RADIUS + 6);
+                const by = this.y + Math.sin(this.angle) * (TURRET_RADIUS + 6);
+                bullets.push(new Bullet(bx, by, this.angle, this.owner, this.colorIdx));
+            }
+        }
+        draw(alpha) {
+            const angle = lerp(this.prevAngle, this.angle, alpha);
+            const color = PALETTE[this.colorIdx];
+            ctx.save();
+            ctx.translate(this.x, this.y);
+
+            // Shadow
+            ctx.fillStyle = "rgba(0,0,0,0.12)";
+            ctx.beginPath();
+            ctx.ellipse(2, 3, TURRET_RADIUS * 0.95, TURRET_RADIUS * 0.55, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Barrel
+            ctx.save();
+            ctx.rotate(angle);
+            ctx.fillStyle = COLORS.turretBarrel;
+            roundRect(ctx, 0, -3, TURRET_RADIUS + 8, 6, 2);
+            ctx.fill();
+            ctx.restore();
+
+            // Base with owner-color ring
+            ctx.fillStyle = COLORS.turretBase;
+            ctx.strokeStyle = color.fill;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, TURRET_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Center bolt
+            ctx.fillStyle = COLORS.turretBarrel;
+            ctx.beginPath();
+            ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+    }
+
+    /* Builds a turret for `owner` near the impact point, clamped inside the arena */
+    function buildTurret(owner, x, y) {
+        const margin = TURRET_RADIUS + 8;
+        const tx = Math.max(margin, Math.min(W - margin, x));
+        const ty = Math.max(margin, Math.min(H - margin, y));
+        const own = turrets.filter(t => t.owner === owner);
+        if (own.length >= MAX_TURRETS_PER_PLAYER) {
+            turrets.splice(turrets.indexOf(own[0]), 1);
+        }
+        turrets.push(new Turret(tx, ty, owner));
+        owner.turretsBuilt++;
+    }
+
     /* Four-pointed star, reused by projectile and launcher weapon */
     function drawShurikenShape(x, y, spin, r) {
         ctx.save();
@@ -415,12 +543,16 @@
 
             // Shield state: grows every time it bashes an enemy
             this.shieldSize = 1;
+
+            // Wrench state: turrets built so far
+            this.turretsBuilt = 0;
         }
 
         spinSpeed() {
             if (this.type === "sword") return SWORD_SPIN_SPEED;
             if (this.type === "bow") return BOW_SPIN_SPEED;
             if (this.type === "shield") return SHIELD_SPIN_SPEED;
+            if (this.type === "wrench") return WRENCH_SPIN_SPEED;
             return SHURIKEN_SPIN_SPEED;
         }
 
@@ -555,6 +687,7 @@
             if (this.type === "sword") this.drawSword(dx, dy, angle);
             else if (this.type === "bow") this.drawBow(dx, dy, angle);
             else if (this.type === "shield") this.drawShield(dx, dy, angle);
+            else if (this.type === "wrench") this.drawWrench(dx, dy, angle);
             else this.drawShurikenLauncher(dx, dy, angle);
 
             this.drawHPBar(dx, dy);
@@ -673,6 +806,40 @@
             ctx.restore();
         }
 
+        drawWrench(cx, cy, angle) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(angle);
+
+            // Shaft
+            ctx.fillStyle = COLORS.wrenchBody;
+            roundRect(ctx, 10, -3, WRENCH_LENGTH, 6, 3);
+            ctx.fill();
+
+            // Open jaw head (gap facing outward)
+            const hx = 10 + WRENCH_LENGTH;
+            ctx.strokeStyle = COLORS.wrenchBody;
+            ctx.lineWidth = 7;
+            ctx.beginPath();
+            ctx.arc(hx + 4, 0, 7, 0.85, Math.PI * 2 - 0.85);
+            ctx.stroke();
+
+            // Shaft highlight
+            ctx.strokeStyle = COLORS.wrenchEdge;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(13, 0);
+            ctx.lineTo(hx - 2, 0);
+            ctx.stroke();
+
+            // Grip in player color
+            ctx.fillStyle = this.color.fill;
+            roundRect(ctx, 10, -3.5, 10, 7, 3);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
         drawHPBar(cx, cy) {
             const barW = 44;
             const barH = 6;
@@ -744,18 +911,25 @@
         return best;
     }
 
+    /* Melee weapon segment (sword blade or wrench shaft+head) */
+    function meleeReach(p) {
+        if (p.type === "wrench") return { base: 10, tip: 10 + WRENCH_LENGTH + 11 };
+        return { base: 14, tip: 14 + SWORD_LENGTH + 6 };
+    }
+
     function getSwordTip(p) {
-        const totalLen = 14 + SWORD_LENGTH + 6;
+        const r = meleeReach(p);
         return {
-            x: p.x + Math.cos(p.weaponAngle) * totalLen,
-            y: p.y + Math.sin(p.weaponAngle) * totalLen,
+            x: p.x + Math.cos(p.weaponAngle) * r.tip,
+            y: p.y + Math.sin(p.weaponAngle) * r.tip,
         };
     }
 
     function getBladeStart(p) {
+        const r = meleeReach(p);
         return {
-            x: p.x + Math.cos(p.weaponAngle) * 14,
-            y: p.y + Math.sin(p.weaponAngle) * 14,
+            x: p.x + Math.cos(p.weaponAngle) * r.base,
+            y: p.y + Math.sin(p.weaponAngle) * r.base,
         };
     }
 
@@ -882,6 +1056,8 @@
 
         arrows = [];
         shurikens = [];
+        turrets = [];
+        bullets = [];
         particles = [];
         damageNumbers = [];
         gameOver = false;
@@ -1147,6 +1323,7 @@
         if (p.type === "sword") return p.damage;
         if (p.type === "bow") return p.burstSize;
         if (p.type === "shield") return p.shieldSize;
+        if (p.type === "wrench") return p.turretsBuilt;
         return p.shurikenBounces;
     }
 
@@ -1227,9 +1404,80 @@
             }
         }
 
-        // --- Sword melee: clash with other weapons or hit bodies ---
+        // --- Turrets: solid static obstacles — balls bounce off them ---
+        for (const t of turrets) {
+            for (const p of players) {
+                if (p.hp <= 0) continue;
+                const dx = p.x - t.x;
+                const dy = p.y - t.y;
+                const d = Math.hypot(dx, dy);
+                const minD = TURRET_RADIUS + BALL_RADIUS;
+                if (d > 0 && d < minD) {
+                    const nx = dx / d;
+                    const ny = dy / d;
+                    p.x = t.x + nx * minD;
+                    p.y = t.y + ny * minD;
+                    const vDot = p.vx * nx + p.vy * ny;
+                    if (vDot < 0) {
+                        p.vx -= 2 * vDot * nx;
+                        p.vy -= 2 * vDot * ny;
+                    }
+                }
+            }
+            // Arrows break against turrets; shurikens ricochet off them
+            for (const a of arrows) {
+                if (a.alive && pointInCircle(a.x, a.y, t.x, t.y, TURRET_RADIUS)) {
+                    a.alive = false;
+                    spawnHitParticles(a.x, a.y, "#aaaaaa");
+                }
+            }
+            for (const s of shurikens) {
+                if (!s.alive || s.deflectCooldown > 0) continue;
+                const dx = s.x - t.x;
+                const dy = s.y - t.y;
+                const d = Math.hypot(dx, dy);
+                if (d > 0 && d < TURRET_RADIUS + SHURIKEN_RADIUS) {
+                    const nx = dx / d;
+                    const ny = dy / d;
+                    const dot = s.vx * nx + s.vy * ny;
+                    if (dot < 0) {
+                        s.vx -= 2 * dot * nx;
+                        s.vy -= 2 * dot * ny;
+                    }
+                    s.deflectCooldown = 0.2;
+                    spawnHitParticles(s.x, s.y, "#aaaaaa");
+                }
+            }
+        }
+
+        // --- Turret bullets: blocked by shields, damage everyone else ---
+        for (const b of bullets) {
+            if (!b.alive) continue;
+            for (const s of players) {
+                if (s.type !== "shield" || s.hp <= 0 || s === b.owner) continue;
+                if (pointInShield(s, b.x, b.y, TURRET_BULLET_RADIUS)) {
+                    b.alive = false;
+                    spawnHitParticles(b.x, b.y, "#ffffff");
+                    break;
+                }
+            }
+            if (!b.alive) continue;
+            for (const p of players) {
+                if (p.hp <= 0 || p === b.owner) continue;
+                if (pointInCircle(b.x, b.y, p.x, p.y, BALL_RADIUS + TURRET_BULLET_RADIUS)) {
+                    if (p.takeDamage(TURRET_BULLET_DAMAGE)) {
+                        spawnHitParticles(b.x, b.y, p.color.fill);
+                        damageNumbers.push(new DamageNumber(p.x, p.y - BALL_RADIUS - 20, TURRET_BULLET_DAMAGE));
+                    }
+                    b.alive = false;
+                    break;
+                }
+            }
+        }
+
+        // --- Melee (sword & wrench): clash with other weapons or hit bodies ---
         for (const s of players) {
-            if (s.type !== "sword" || s.hp <= 0) continue;
+            if ((s.type !== "sword" && s.type !== "wrench") || s.hp <= 0) continue;
             const tip = getSwordTip(s);
             const bladeStart = getBladeStart(s);
 
@@ -1243,7 +1491,7 @@
                     clashed = segmentsIntersect(bladeStart, tip, tri[0], tri[1]) ||
                               segmentsIntersect(bladeStart, tip, tri[1], tri[2]) ||
                               segmentsIntersect(bladeStart, tip, tri[2], tri[0]);
-                } else if (o.type === "sword") {
+                } else if (o.type === "sword" || o.type === "wrench") {
                     clashed = segmentsIntersect(bladeStart, tip, getBladeStart(o), getSwordTip(o));
                 } else if (o.type === "shield") {
                     const midX = (bladeStart.x + tip.x) / 2;
@@ -1264,11 +1512,16 @@
                         o.clashTimer = 0.2;
                     }
                 } else if (segmentCircleIntersect(bladeStart.x, bladeStart.y, tip.x, tip.y, o.x, o.y, BALL_RADIUS)) {
-                    if (s.attackCooldown <= 0 && o.takeDamage(s.damage)) {
-                        s.damage++;
+                    const dmg = s.type === "sword" ? s.damage : WRENCH_DAMAGE;
+                    if (s.attackCooldown <= 0 && o.takeDamage(dmg)) {
+                        if (s.type === "sword") {
+                            s.damage++;
+                        } else {
+                            buildTurret(s, o.x, o.y); // la llave construye una torreta en el impacto
+                        }
                         updateStatValue(s);
                         spawnHitParticles(o.x, o.y, o.color.fill);
-                        damageNumbers.push(new DamageNumber(o.x, o.y - BALL_RADIUS - 20, s.damage - 1));
+                        damageNumbers.push(new DamageNumber(o.x, o.y - BALL_RADIUS - 20, dmg));
                         s.attackCooldown = 0.5;
                     }
                 }
@@ -1356,7 +1609,7 @@
                     if (p === s.owner || p.hp <= 0) continue;
                     let normal = null;
 
-                    if (p.type === "sword") {
+                    if (p.type === "sword" || p.type === "wrench") {
                         const bladeStart = getBladeStart(p);
                         const tip = getSwordTip(p);
                         if (pointToSegmentDist(s.x, s.y, bladeStart.x, bladeStart.y, tip.x, tip.y) < SHURIKEN_RADIUS + 3) {
@@ -1434,6 +1687,8 @@
             }
         }
         players = players.filter(p => p.hp > 0);
+        // Las torretas caen con su dueño
+        turrets = turrets.filter(t => t.owner && t.owner.hp > 0);
     }
 
     function checkWin() {
@@ -1538,8 +1793,11 @@
         for (const p of players) p.update(dt);
         for (const a of arrows) a.update(dt);
         for (const s of shurikens) s.update(dt);
+        for (const t of turrets) t.update(dt);
+        for (const b of bullets) b.update(dt);
         arrows = arrows.filter(a => a.alive);
         shurikens = shurikens.filter(s => s.alive);
+        bullets = bullets.filter(b => b.alive);
 
         for (const p of particles) p.update(dt);
         particles = particles.filter(p => p.life > 0);
@@ -1554,8 +1812,10 @@
 
     function render(alpha) {
         drawArena();
+        for (const t of turrets) t.draw(alpha);
         for (const a of arrows) a.draw(alpha);
         for (const s of shurikens) s.draw(alpha);
+        for (const b of bullets) b.draw(alpha);
         for (const p of players) p.draw(alpha);
         for (const p of particles) p.draw();
         for (const d of damageNumbers) d.draw();
@@ -1805,6 +2065,8 @@
             p: players.map(p => [p.index, r1(p.x), r1(p.y), r2(p.weaponAngle), r1(p.hp), statValueOf(p)]),
             a: arrows.map(a => [r1(a.x), r1(a.y), r2(a.angle)]),
             s: shurikens.map(s => [r1(s.x), r1(s.y), r2(s.spin)]),
+            t: turrets.map(t => [t.colorIdx, r1(t.x), r1(t.y), r2(t.angle)]),
+            b: bullets.map(b => [b.colorIdx, r1(b.x), r1(b.y)]),
         };
     }
 
@@ -1829,6 +2091,7 @@
             if (p.type === "sword") p.damage = stat;
             else if (p.type === "bow") p.burstSize = stat;
             else if (p.type === "shield") p.shieldSize = stat;
+            else if (p.type === "wrench") p.turretsBuilt = stat;
             else p.shurikenBounces = stat;
             if (stat !== prevStat) updateStatValue(p);
         }
@@ -1852,6 +2115,17 @@
             sh.spin = spin; sh.prevSpin = spin;
             return sh;
         });
+        turrets = (s.t || []).map(([ci, x, y, ang]) => {
+            const t = new Turret(x, y, null, ci);
+            t.angle = ang; t.prevAngle = ang;
+            return t;
+        });
+        bullets = (s.b || []).map(([ci, x, y]) => {
+            const b = new Bullet(x, y, 0, null, ci);
+            b.px = x; b.py = y;
+            b.vx = 0; b.vy = 0;
+            return b;
+        });
     }
 
     /* Frame del espectador: efectos locales + render escalado a la arena del anfitrión */
@@ -1868,8 +2142,10 @@
         const scale = lastSnap ? W / lastSnap.w : 1;
         ctx.save();
         ctx.scale(scale, scale);
+        for (const t of turrets) t.draw(1);
         for (const a of arrows) a.draw(1);
         for (const s of shurikens) s.draw(1);
+        for (const b of bullets) b.draw(1);
         for (const p of players) p.draw(1);
         for (const p of particles) p.draw();
         for (const d of damageNumbers) d.draw();

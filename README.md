@@ -51,3 +51,4 @@ Si el anfitrión abandona a mitad de combate, este se cancela, las apuestas se d
 | 🏹 Arco | Ráfagas de flechas cada vez mayores |
 | ✦ Shuriken | Estrellas teledirigidas con más rebotes |
 | 🛡️ Escudo | Barra recta que crece y repele enemigos (1 de daño fijo) |
+| 🔧 Llave inglesa | Cada golpe (1 de daño) construye una torreta giratoria que dispara proyectiles de 1 de daño; las torretas son sólidas y las bolas rebotan en ellas |
