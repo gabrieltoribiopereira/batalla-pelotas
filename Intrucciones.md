@@ -1,0 +1,2 @@
+Haz las siguientes mejoras en el juego:
+lo que tienes que hacer es añdir un jugador  a las apuestas para competir en local a ver quien tiene mas exito. Por otro lado quiero que añadas una nueva bola con una nueva arma que sea un escudo este escudo saca 1 de daño y cada vez que le da a un enemigo se hace mas grande y mas grande el enemigo rebota al tocar el escudo. 

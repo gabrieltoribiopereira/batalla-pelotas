@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalla de Pelotas - Battle Simulator</title>
+    <meta name="description" content="An auto-battle simulation game where fighters with different weapons fight to the death in a bouncing arena.">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <header id="game-header">
+            <h1 id="game-title">⚔️ Batalla de Pelotas</h1>
+            <div id="header-players"></div>
+        </header>
+
+        <div id="arena-container">
+            <canvas id="arena"></canvas>
+
+            <div id="mode-overlay">
+                <div id="mode-card">
+                    <h2 id="mode-title">¿Cómo quieres jugar?</h2>
+                    <button id="btn-mode-local" class="mode-btn">
+                        <span class="mode-btn-icon">🎮</span>
+                        <span class="mode-btn-label">Local</span>
+                        <span class="mode-btn-desc">Un dispositivo, dos apostadores</span>
+                    </button>
+                    <button id="btn-mode-online" class="mode-btn">
+                        <span class="mode-btn-icon">🌐</span>
+                        <span class="mode-btn-label">Online</span>
+                        <span class="mode-btn-desc">Crea una sala y apuesta con tus amigos</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="online-overlay" class="hidden">
+                <div id="online-card"></div>
+            </div>
+
+            <div id="setup-overlay" class="hidden">
+                <div id="setup-card">
+                    <h2 id="setup-title">Prepara el combate</h2>
+                    <p id="setup-hint">Elige un arma para cada luchador. Pasa el ratón por un arma para ver qué hace.</p>
+                    <div id="player-list"></div>
+                    <div id="bet-box">
+                        <div id="bet-header">
+                            <span id="bet-title">🪙 Apuestas</span>
+                            <span id="bet-hint">El premio se multiplica por el nº de luchadores</span>
+                        </div>
+                        <div id="bettors"></div>
+                    </div>
+                    <div id="setup-buttons">
+                        <button id="btn-add-player">+ Añadir jugador</button>
+                        <button id="btn-random" title="Jugadores y armas aleatorios">🎲</button>
+                        <button id="btn-start">▶ Empezar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer id="game-footer">
+            <div id="stats-row"></div>
+            <div id="game-controls">
+                <button id="btn-restart" title="Restart">⟳ Reiniciar</button>
+            </div>
+        </footer>
+    </div>
+
+    <div id="winner-overlay" class="hidden">
+        <div id="winner-card">
+            <div id="winner-text"></div>
+            <div id="bet-result"></div>
+            <button id="btn-play-again">Jugar otra vez</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
